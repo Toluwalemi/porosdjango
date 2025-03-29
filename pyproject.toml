@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "Porusdjango"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "An opinionated Django project setup tool"
+readme = "README.md"
+authors = [
+    {name = "Toluwalemi Oluwadare", email = "toluwalemisrael@gmail.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Environment :: Web Environment",
+    "Framework :: Django",
+]
+dependencies = [
+    "click>=8.0.0",
+    "requests>=2.25.0",
+    "jinja2>=3.0.0",
+    "django>=5.0",
+
+]
+
+[project.scripts]
+django-myway = "porosdjango.cli:main"
+
+[project.urls]
+"Homepage" = "https://github.com/Toluwalemi/porosdjango"
+"Bug Tracker" = "https://github.com/Toluwalemi/porosdjango/issues"
