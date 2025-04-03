@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.scripts]
-django-myway = "porosdjango.cli:main"
+porosdjango = "porosdjango.cli:main"
 
 [project.urls]
 "Homepage" = "https://github.com/Toluwalemi/porosdjango"
