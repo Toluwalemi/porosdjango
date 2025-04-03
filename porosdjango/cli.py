@@ -3,6 +3,7 @@ import subprocess
 import click
 import requests
 from jinja2 import Environment, PackageLoader, select_autoescape
+import sys
 
 
 class DjangoProjectBuilder:
@@ -44,11 +45,12 @@ class DjangoProjectBuilder:
         try:
             click.echo(f"Creating application '{self.custom_app_name}'...")
             subprocess.run(
-                ["python", "manage.py", "startapp", self.custom_app_name], check=True
+                [sys.executable, "manage.py", "startapp", self.custom_app_name],
+                check=True,
             )
             return True
-        except subprocess.CalledProcessError:
-            click.echo(f"Failed to create app {self.custom_app_name}.")
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Failed to create app {self.custom_app_name}: {e}")
             return False
 
     def create_auth_app(self):
