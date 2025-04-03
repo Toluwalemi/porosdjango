@@ -3,7 +3,7 @@ requires = ["setuptools>=42.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "porusdjango"
+name = "porosdjango"
 version = "0.1.0"
 requires-python = ">=3.11"
 description = "An opinionated Django project setup tool"
@@ -35,3 +35,7 @@ porosdjango = "porosdjango.cli:main"
 [project.urls]
 "Homepage" = "https://github.com/Toluwalemi/porosdjango"
 "Bug Tracker" = "https://github.com/Toluwalemi/porosdjango/issues"
+
+[tool.setuptools]
+packages = ["porosdjango"]
+include-package-data = true
