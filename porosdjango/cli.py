@@ -221,13 +221,18 @@ def create():
         default="config",
         show_default=False,
     )
-
-    # Prompt for custom app name (mandatory)
-    custom_app_name = ""
-    while not custom_app_name:
-        custom_app_name = click.prompt("What would you like to name your application?")
-        if not custom_app_name:
-            click.echo("Application name is required.")
+    # Prompt for custom app name (optional)
+    create_custom = click.confirm(
+        "Would you like to create a custom app?", default=True
+    )
+    custom_app_name = None
+    if create_custom:
+        while not custom_app_name:
+            custom_app_name = click.prompt(
+                "What would you like to name your application?"
+            )
+            if not custom_app_name:
+                click.echo("Application name is required if creating a custom app")
 
     # Create and run the project builder
     builder = DjangoProjectBuilder(project_app_name, custom_app_name)
