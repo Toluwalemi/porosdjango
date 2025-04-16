@@ -42,6 +42,9 @@ class DjangoProjectBuilder:
 
     def create_custom_app(self):
         """Create the custom application."""
+        if not self.custom_app_name:
+            click.echo("Skipping custom app creation as none was specified.")
+            return True
         try:
             click.echo(f"Creating application '{self.custom_app_name}'...")
             subprocess.run(
@@ -97,7 +100,8 @@ class DjangoProjectBuilder:
 
                 if app_list_start is not None and app_list_end is not None:
                     # Insert our apps before the closing bracket
-                    lines.insert(app_list_end, f"    '{self.custom_app_name}',")
+                    if self.custom_app_name:
+                        lines.insert(app_list_end, f"    '{self.custom_app_name}',")
                     lines.insert(app_list_end, "    'auth_app',")
                     lines.insert(app_list_end, "    'rest_framework',")
 
@@ -128,7 +132,7 @@ class DjangoProjectBuilder:
         click.echo("Creating requirements.txt...")
         try:
             with open("requirements.txt", "w") as f:
-                f.write("Django==5.0.7\ndjangorestframework==3.15.2\n")
+                f.write("Django==5.2\ndjangorestframework==3.16.0\n")
             return True
         except Exception as e:
             click.echo(f"Failed to create requirements.txt: {e}")
@@ -166,36 +170,37 @@ class DjangoProjectBuilder:
             click.echo("Failed to run migrations. You may need to run them manually.")
             return False
 
+    def install_dependencies(self):
+        """Install required dependencies from requirements.txt."""
+        click.echo("Installing dependencies from requirements.txt...")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt"],
+                check=True,
+            )
+            click.echo("Dependencies installed successfully.")
+            return True
+        except subprocess.CalledProcessError as e:
+            click.echo(f"Failed to install dependencies: {e}")
+            return False
+
     def setup(self):
         """Run the complete setup process."""
-        # Step 1: Create Django project
+        if not self.create_requirements():
+            return False
         if not self.create_django_project():
             return False
-
-        # Step 2: Create custom app
         if not self.create_custom_app():
             return False
-
-        # Step 3: Create auth app
         if not self.create_auth_app():
             return False
-
-        # Step 4: Update settings
         if not self.update_settings():
             return False
-
-        # Step 5: Create requirements.txt
-        self.create_requirements()
-
-        # Step 6: Create .gitignore
         self.create_gitignore()
-
-        # Step 7: Run migrations
         self.run_migrations()
 
         click.echo("\nSetup complete!")
-        click.echo("\nTo run your project:")
-        click.echo("1. pip install -r requirements.txt")
+        click.echo("\nUse this command to run your project:")
         click.echo("2. python manage.py runserver")
 
         return True
