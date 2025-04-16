@@ -188,6 +188,10 @@ class DjangoProjectBuilder:
         """Run the complete setup process."""
         if not self.create_requirements():
             return False
+        if not self.install_dependencies():
+            click.echo(
+                "Warning: Failed to install dependencies. Continuing with setup..."
+            )
         if not self.create_django_project():
             return False
         if not self.create_custom_app():
