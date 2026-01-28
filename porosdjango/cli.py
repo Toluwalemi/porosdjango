@@ -56,18 +56,42 @@ class DjangoProjectBuilder:
             click.echo(f"Failed to create app {self.custom_app_name}: {e}")
             return False
 
+    def create_helpers_module(self):
+        """Create the helpers module with base model utilities."""
+        try:
+            click.echo("Creating helpers module...")
+            os.makedirs("helpers", exist_ok=True)
+            with open(os.path.join("helpers", "__init__.py"), "w") as f:
+                f.write("")
+
+            db_helpers_template = self.jinja_env.get_template("db_helpers.py.j2")
+            with open(os.path.join("helpers", "db_helpers.py"), "w") as f:
+                f.write(db_helpers_template.render())
+            return True
+        except Exception as e:
+            click.echo(f"Failed to create helpers module: {e}")
+            return False
+
     def create_auth_app(self):
         """Create and configure the auth_app with a custom User model."""
         try:
-            # Create the app
             click.echo("Creating auth_app...")
-            subprocess.run(["python", "manage.py", "startapp", "auth_app"], check=True)
+            subprocess.run(
+                [sys.executable, "manage.py", "startapp", "auth_app"], check=True
+            )
 
             # Setup custom User model
             click.echo("Setting up custom User model...")
             models_template = self.jinja_env.get_template("models.py.j2")
             with open(os.path.join("auth_app", "models.py"), "w") as f:
                 f.write(models_template.render())
+
+            # Setup custom UserManager
+            click.echo("Setting up custom UserManager...")
+            managers_template = self.jinja_env.get_template("managers.py.j2")
+            with open(os.path.join("auth_app", "managers.py"), "w") as f:
+                f.write(managers_template.render())
+
             return True
         except subprocess.CalledProcessError:
             click.echo("Failed to create auth_app.")
@@ -132,7 +156,7 @@ class DjangoProjectBuilder:
         click.echo("Creating requirements.txt...")
         try:
             with open("requirements.txt", "w") as f:
-                f.write("Django==5.2\ndjangorestframework==3.16.0\n")
+                f.write("Django==6.0\ndjangorestframework==3.16.1\n")
             return True
         except Exception as e:
             click.echo(f"Failed to create requirements.txt: {e}")
@@ -195,6 +219,8 @@ class DjangoProjectBuilder:
         if not self.create_django_project():
             return False
         if not self.create_custom_app():
+            return False
+        if not self.create_helpers_module():
             return False
         if not self.create_auth_app():
             return False
