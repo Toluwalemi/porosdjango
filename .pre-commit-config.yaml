@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.7.1
+    rev: v0.14.14
     hooks:
       - id: ruff
       - id: ruff-format
@@ -9,6 +9,11 @@ repos:
     rev: v5.0.0
     hooks:
       - id: check-merge-conflict
+      - id: check-yaml
+      - id: check-tomlwhat doe
+      - id: check-ast
+      - id: check-added-large-files
+      - id: check-case-conflict
       - id: debug-statements
       - id: fix-byte-order-marker
       - id: trailing-whitespace
