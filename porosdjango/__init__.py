@@ -1,3 +1,8 @@
-"""Porosdjango - Opinionated Django Project Setup Tool."""
+"""PorosDjango - Opinionated Django Project Setup Tool."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("porosdjango")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
