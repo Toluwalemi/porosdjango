@@ -4,7 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+> **Note:** For releases after `0.1.2`, see [GitHub Releases](https://github.com/Toluwalemi/porosdjango/releases).
+
+## [0.1.2] - 2026-02-02
+
+### Added
+- GitHub Actions workflow for automated PyPI publishing via trusted publishing
+- Changelog URL to `pyproject.toml` (points to GitHub Releases)
 
 ### Changed
 - Refactored `cli.py` into focused components (`TemplateRenderer`, `DjangoCommands`, `SettingsModifier`, `ProjectScaffold`)
