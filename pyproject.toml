@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "porosdjango"
-version = "0.1.1"
+version = "0.1.2"
 requires-python = ">=3.11"
 description = "An opinionated Django project setup tool"
 readme = "README.md"
@@ -42,6 +42,7 @@ porosdjango = "porosdjango.cli:main"
 [project.urls]
 "Homepage" = "https://github.com/Toluwalemi/porosdjango"
 "Bug Tracker" = "https://github.com/Toluwalemi/porosdjango/issues"
+"Changelog" = "https://github.com/Toluwalemi/porosdjango/releases"
 
 [tool.setuptools]
 packages = ["porosdjango"]
