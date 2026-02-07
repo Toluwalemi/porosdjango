@@ -2,6 +2,8 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/porosdjango.svg)](https://pypi.org/project/porosdjango/)
 [![Python](https://img.shields.io/pypi/pyversions/porosdjango.svg)](https://pypi.org/project/porosdjango/)
+[![Tests](https://github.com/Toluwalemi/porosdjango/actions/workflows/test.yml/badge.svg)](https://github.com/Toluwalemi/porosdjango/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/Toluwalemi/porosdjango/graph/badge.svg)](https://codecov.io/gh/Toluwalemi/porosdjango)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An opinionated CLI tool that bootstraps Django projects with production-ready defaults. Get a custom user model, Django REST Framework, and sensible project structure in seconds.
