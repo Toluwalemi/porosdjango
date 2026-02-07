@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from porosdjango.cli import TemplateRenderer
 from porosdjango.exceptions import TemplateRenderError
@@ -28,7 +29,9 @@ def test_render_with_missing_template_fails():
     THEN a TemplateRenderError is raised
     """
     with patch("porosdjango.cli.Environment") as mock_env_cls:
-        mock_env_cls.return_value.get_template.side_effect = Exception("Template missing")
+        mock_env_cls.return_value.get_template.side_effect = Exception(
+            "Template missing"
+        )
 
         renderer = TemplateRenderer()
         with pytest.raises(TemplateRenderError, match="Failed to render template"):

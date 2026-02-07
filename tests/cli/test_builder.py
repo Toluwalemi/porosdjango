@@ -1,23 +1,25 @@
 from unittest.mock import MagicMock, patch
 
-from porosdjango.cli import DjangoProjectBuilder, DjangoCommands
+from porosdjango.cli import DjangoCommands, DjangoProjectBuilder
 
 
 def test_setup_succeeds(mock_subprocess, mock_requests, mock_click):
     """GIVEN a DjangoProjectBuilder configured with a project and app name
     WHEN setup is called with all dependencies mocked
-    THEN all scaffold, command, and settings steps are executed in order and setup returns True
+    THEN all scaffold, command, and settings steps execute
+    and setup returns True
     """
     builder = DjangoProjectBuilder("testproj", "testapp")
 
     builder.scaffold = MagicMock()
     builder.settings = MagicMock()
 
-    with patch.object(DjangoCommands, 'startproject') as mock_startproject, \
-         patch.object(DjangoCommands, 'startapp') as mock_startapp, \
-         patch.object(DjangoCommands, 'install_dependencies') as mock_install, \
-         patch.object(DjangoCommands, 'run_migrations') as mock_migrate:
-
+    with (
+        patch.object(DjangoCommands, "startproject") as mock_startproject,
+        patch.object(DjangoCommands, "startapp") as mock_startapp,
+        patch.object(DjangoCommands, "install_dependencies") as mock_install,
+        patch.object(DjangoCommands, "run_migrations") as mock_migrate,
+    ):
         success = builder.setup()
 
         assert success is True

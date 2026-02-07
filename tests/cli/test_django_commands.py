@@ -10,8 +10,7 @@ def test_startproject_succeeds(mock_subprocess):
     """
     DjangoCommands.startproject("myproject")
     mock_subprocess.assert_called_with(
-        ["django-admin", "startproject", "myproject", "."],
-        check=True
+        ["django-admin", "startproject", "myproject", "."], check=True
     )
 
 
@@ -22,6 +21,5 @@ def test_startapp_succeeds(mock_subprocess):
     """
     DjangoCommands.startapp("myapp")
     mock_subprocess.assert_called_with(
-        [sys.executable, "manage.py", "startapp", "myapp"],
-        check=True
+        [sys.executable, "manage.py", "startapp", "myapp"], check=True
     )

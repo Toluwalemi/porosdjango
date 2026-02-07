@@ -7,7 +7,8 @@ from porosdjango.exceptions import SettingsUpdateError
 def test_add_apps_and_auth_succeeds(tmp_path):
     """GIVEN a settings.py file with a default INSTALLED_APPS list
     WHEN add_apps_and_auth is called with a custom app name
-    THEN the settings file contains the custom app, auth_app, rest_framework, and AUTH_USER_MODEL
+    THEN the settings file contains the custom app,
+    auth_app, rest_framework, and AUTH_USER_MODEL
     """
     settings_file = tmp_path / "settings.py"
     settings_content = """

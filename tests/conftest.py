@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 
 @pytest.fixture
 def mock_subprocess():
@@ -7,11 +9,13 @@ def mock_subprocess():
     with patch("porosdjango.cli.subprocess.run") as mock:
         yield mock
 
+
 @pytest.fixture
 def mock_requests():
     """Mock requests.get to prevent network calls."""
     with patch("porosdjango.cli.requests.get") as mock:
         yield mock
+
 
 @pytest.fixture
 def mock_click():
