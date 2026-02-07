@@ -153,3 +153,9 @@ modules.xml
 __pycache__
 /node_modules/
 /.venv/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

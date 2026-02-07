@@ -1,5 +1,3 @@
-"""PorosDjango - Opinionated Django Project Setup Tool."""
-
 from importlib.metadata import PackageNotFoundError, version
 
 try:
