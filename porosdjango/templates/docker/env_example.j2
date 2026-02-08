@@ -1,0 +1,33 @@
+# Django
+DJANGO_SECRET_KEY=change-me-to-a-real-secret-key
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,web
+
+# PostgreSQL
+POSTGRES_DB={{ project_name }}
+POSTGRES_USER={{ project_name }}
+POSTGRES_PASSWORD={{ project_name }}
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+
+# Redis
+REDIS_URL=redis://redis:6379/0
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Celery
+CELERY_BROKER_URL=redis://redis:6379/1
+CELERY_RESULT_BACKEND=redis://redis:6379/2
+CELERY_LOG_LEVEL=info
+CELERY_CONCURRENCY=2
+
+# Email (MailHog)
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=mailpit
+EMAIL_PORT=1025
+EMAIL_USE_TLS=False
+DEFAULT_FROM_EMAIL=noreply@{{ project_name }}.local
+
+# Grafana
+GRAFANA_ADMIN_USER=admin
+GRAFANA_ADMIN_PASSWORD=admin

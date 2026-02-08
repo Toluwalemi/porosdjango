@@ -1,0 +1,103 @@
+# Git
+.git
+.gitignore
+
+# Environment
+.env
+.env.*
+!.env.example
+.venv
+venv
+env/
+ENV/
+
+# Python bytecode
+__pycache__
+*.pyc
+*.pyo
+*.py[cod]
+
+# Database
+db.sqlite3
+db.sqlite3-journal
+
+# Static/Media (collected at runtime)
+staticfiles/
+media/
+
+# IDE
+.idea/
+.vscode/
+
+# Python packaging
+*.egg-info/
+*.egg
+dist/
+build/
+.Python
+
+# Test/Coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.cache/
+.hypothesis/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# Type checkers
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Translations
+*.mo
+*.pot
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Docs
+docs/
+
+# CI/Dev tools (not needed in container)
+.pre-commit-config.yaml
+pyproject.toml
+Makefile
+.github/
+
+# Claude-specific
+.claudeignore
+CLAUDE.md
+
+# Docker overrides
+docker-compose.override.yml
+
+# Infrastructure configs (mounted at runtime, not baked in)
+infrastructure/docker/prometheus/
+infrastructure/docker/alertmanager/
+infrastructure/docker/grafana/
+infrastructure/docker/nginx/
+
+# Project task tracking
+tasks/
+
+# Markdown (except requirements)
+*.md
+!requirements*.txt

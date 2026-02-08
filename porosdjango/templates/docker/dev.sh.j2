@@ -1,0 +1,26 @@
+#!/bin/bash
+set -e
+
+wait_for_service() {
+    local host="$1"
+    local port="$2"
+    local service="$3"
+
+    echo "Waiting for ${service} at ${host}:${port}..."
+    while ! python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('${host}', ${port})); s.close()" 2>/dev/null; do
+        sleep 1
+    done
+    echo "${service} is ready."
+}
+
+wait_for_service "${POSTGRES_HOST:-db}" "${POSTGRES_PORT:-5432}" "PostgreSQL"
+wait_for_service "${REDIS_HOST:-redis}" "${REDIS_PORT:-6379}" "Redis"
+
+echo "Running migrations..."
+python manage.py migrate --noinput
+
+echo "Collecting static files..."
+python manage.py collectstatic --noinput
+
+echo "Starting development server..."
+exec python manage.py runserver 0.0.0.0:8000

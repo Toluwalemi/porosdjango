@@ -23,7 +23,7 @@ def test_setup_succeeds(mock_subprocess, mock_requests, mock_click):
         success = builder.setup()
 
         assert success is True
-        builder.scaffold.create_requirements.assert_called_once()
+        builder.scaffold.create_requirements.assert_called_once_with(docker=False)
         mock_install.assert_called_once()
         mock_startproject.assert_called_with("testproj")
         mock_startapp.assert_any_call("testapp")
@@ -31,4 +31,56 @@ def test_setup_succeeds(mock_subprocess, mock_requests, mock_click):
         builder.scaffold.create_helpers_module.assert_called_once()
         builder.scaffold.create_auth_app_files.assert_called_once()
         builder.settings.add_apps_and_auth.assert_called_with("testapp")
+        builder.scaffold.create_docker_setup.assert_not_called()
         mock_migrate.assert_called_once()
+
+
+def test_setup_with_docker_integration_calls_docker_setup(
+    mock_subprocess, mock_requests, mock_click
+):
+    """GIVEN a DjangoProjectBuilder with docker_integration=True
+    WHEN setup is called
+    THEN create_docker_setup is called with the project name
+    and requirements include docker dependencies
+    """
+    builder = DjangoProjectBuilder("testproj", "testapp", docker_integration=True)
+
+    builder.scaffold = MagicMock()
+    builder.settings = MagicMock()
+
+    with (
+        patch.object(DjangoCommands, "startproject"),
+        patch.object(DjangoCommands, "startapp"),
+        patch.object(DjangoCommands, "install_dependencies"),
+        patch.object(DjangoCommands, "run_migrations"),
+    ):
+        success = builder.setup()
+
+        assert success is True
+        builder.scaffold.create_requirements.assert_called_once_with(docker=True)
+        builder.scaffold.create_docker_setup.assert_called_once_with("testproj")
+
+
+def test_setup_without_docker_skips_docker_setup(
+    mock_subprocess, mock_requests, mock_click
+):
+    """GIVEN a DjangoProjectBuilder with docker_integration=False
+    WHEN setup is called
+    THEN create_docker_setup is not called
+    """
+    builder = DjangoProjectBuilder("testproj", "testapp", docker_integration=False)
+
+    builder.scaffold = MagicMock()
+    builder.settings = MagicMock()
+
+    with (
+        patch.object(DjangoCommands, "startproject"),
+        patch.object(DjangoCommands, "startapp"),
+        patch.object(DjangoCommands, "install_dependencies"),
+        patch.object(DjangoCommands, "run_migrations"),
+    ):
+        success = builder.setup()
+
+        assert success is True
+        builder.scaffold.create_requirements.assert_called_once_with(docker=False)
+        builder.scaffold.create_docker_setup.assert_not_called()

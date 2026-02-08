@@ -24,3 +24,7 @@ class TemplateRenderError(PorosDjangoError):
 
 class InvalidAppNameError(PorosDjangoError):
     """Raised when a provided app name is not a valid Python/Django identifier."""
+
+
+class DockerScaffoldError(PorosDjangoError):
+    """Raised when Docker scaffolding fails."""

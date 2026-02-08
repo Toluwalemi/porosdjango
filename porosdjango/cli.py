@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 
@@ -9,6 +10,7 @@ import requests
 from jinja2 import Environment, PackageLoader
 
 from porosdjango.constants import (
+    DOCKER_REQUIREMENTS_CONTENT,
     FALLBACK_GITIGNORE,
     GITIGNORE_URL,
     REQUIREMENTS_CONTENT,
@@ -16,6 +18,7 @@ from porosdjango.constants import (
 from porosdjango.exceptions import (
     AppCreationError,
     DependencyInstallError,
+    DockerScaffoldError,
     InvalidAppNameError,
     ProjectCreationError,
     SettingsUpdateError,
@@ -33,11 +36,12 @@ class TemplateRenderer:
             autoescape=False,
         )
 
-    def render(self, template_name: str) -> str:
+    def render(self, template_name: str, **context: str) -> str:
         """Render a template by name and return the result as a string.
 
         Args:
             template_name: The filename of the template (e.g. 'models.py.j2').
+            **context: Template variables to pass to the renderer.
 
         Returns:
             The rendered template content.
@@ -47,7 +51,7 @@ class TemplateRenderer:
         """
         try:
             template = self.env.get_template(template_name)
-            return template.render()
+            return template.render(**context)
         except Exception as e:
             raise TemplateRenderError(
                 f"Failed to render template '{template_name}': {e}"
@@ -192,10 +196,17 @@ class ProjectScaffold:
     def __init__(self, renderer: TemplateRenderer) -> None:
         self.renderer = renderer
 
-    def create_requirements(self) -> None:
-        """Write requirements.txt with pinned dependencies."""
+    def create_requirements(self, docker: bool = False) -> None:
+        """Write requirements.txt with pinned dependencies.
+
+        Args:
+            docker: If True, append Docker-specific dependencies.
+        """
+        content = REQUIREMENTS_CONTENT
+        if docker:
+            content += DOCKER_REQUIREMENTS_CONTENT
         with open("requirements.txt", "w") as f:
-            f.write(REQUIREMENTS_CONTENT)
+            f.write(content)
 
     def create_gitignore(self) -> None:
         """Fetch .gitignore from the network, falling back to a bundled default."""
@@ -240,6 +251,121 @@ class ProjectScaffold:
         with open(os.path.join("auth_app", "managers.py"), "w") as f:
             f.write(managers_content)
 
+    def create_docker_setup(self, project_name: str) -> None:
+        """Create Docker integration files for the project.
+
+        Args:
+            project_name: The project name used for template variable substitution.
+
+        Raises:
+            DockerScaffoldError: If Docker scaffolding fails.
+        """
+        try:
+            dirs = [
+                os.path.join("infrastructure", "docker", "scripts"),
+                os.path.join("infrastructure", "docker", "nginx"),
+                os.path.join("infrastructure", "docker", "prometheus"),
+                os.path.join("infrastructure", "docker", "alertmanager"),
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "datasources",
+                ),
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "dashboards",
+                    "json",
+                ),
+            ]
+            for d in dirs:
+                os.makedirs(d, exist_ok=True)
+
+            ctx = {"project_name": project_name}
+
+            template_map = {
+                os.path.join(
+                    "infrastructure", "docker", "Dockerfile"
+                ): "docker/Dockerfile.j2",
+                "docker-compose.yml": "docker/docker_compose.yml.j2",
+                ".dockerignore": "docker/dockerignore.j2",
+                ".env.example": "docker/env_example.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "dev.sh"
+                ): "docker/dev.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "celery_worker.sh"
+                ): "docker/celery_worker.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "celery_beat.sh"
+                ): "docker/celery_beat.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "flower.sh"
+                ): "docker/flower.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "nginx", "nginx.conf"
+                ): "docker/nginx.conf.j2",
+                os.path.join(
+                    "infrastructure", "docker", "prometheus", "prometheus.yml"
+                ): "docker/prometheus.yml.j2",
+                os.path.join(
+                    "infrastructure", "docker", "prometheus", "alert_rules.yml"
+                ): "docker/alert_rules.yml.j2",
+                os.path.join(
+                    "infrastructure", "docker", "alertmanager", "alertmanager.yml"
+                ): "docker/alertmanager.yml.j2",
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "datasources",
+                    "datasource.yml",
+                ): "docker/grafana_datasource.yml.j2",
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "dashboards",
+                    "dashboard.yml",
+                ): "docker/grafana_dashboard.yml.j2",
+            }
+
+            for dest, template_name in template_map.items():
+                content = self.renderer.render(template_name, **ctx)
+                with open(dest, "w") as f:
+                    f.write(content)
+
+            # Copy static Grafana dashboard JSON files
+            grafana_json_dir = os.path.join(
+                "infrastructure",
+                "docker",
+                "grafana",
+                "provisioning",
+                "dashboards",
+                "json",
+            )
+            static_dir = os.path.join(
+                os.path.dirname(__file__),
+                "templates",
+                "docker",
+                "grafana",
+            )
+            for json_file in ("django-app.json", "infrastructure.json", "celery.json"):
+                src = os.path.join(static_dir, json_file)
+                dst = os.path.join(grafana_json_dir, json_file)
+                shutil.copy2(src, dst)
+
+        except TemplateRenderError:
+            raise
+        except Exception as e:
+            raise DockerScaffoldError(f"Failed to create Docker setup: {e}") from e
+
 
 class DjangoProjectBuilder:
     """Orchestrates the full project setup process."""
@@ -248,9 +374,11 @@ class DjangoProjectBuilder:
         self,
         project_app_name: str = "config",
         custom_app_name: str | None = None,
+        docker_integration: bool = False,
     ) -> None:
         self.project_app_name = project_app_name
         self.custom_app_name = custom_app_name
+        self.docker_integration = docker_integration
         self.renderer = TemplateRenderer()
         self.scaffold = ProjectScaffold(self.renderer)
         self.settings = SettingsModifier(os.path.join(project_app_name, "settings.py"))
@@ -263,7 +391,7 @@ class DjangoProjectBuilder:
         """
         try:
             click.echo("Creating requirements.txt...")
-            self.scaffold.create_requirements()
+            self.scaffold.create_requirements(docker=self.docker_integration)
 
             click.echo("Installing dependencies...")
             try:
@@ -298,12 +426,21 @@ class DjangoProjectBuilder:
             click.echo("Creating .gitignore...")
             self.scaffold.create_gitignore()
 
+            if self.docker_integration:
+                click.echo("Setting up Docker integration...")
+                self.scaffold.create_docker_setup(self.project_app_name)
+
             click.echo("Running migrations...")
             DjangoCommands.run_migrations()
 
             click.echo("\nSetup complete!")
-            click.echo("\nRun your project with:")
-            click.echo("  python manage.py runserver")
+            if self.docker_integration:
+                click.echo("\nRun your project with Docker:")
+                click.echo("  cp .env.example .env")
+                click.echo("  docker compose up --build")
+            else:
+                click.echo("\nRun your project with:")
+                click.echo("  python manage.py runserver")
             return True
 
         except (
@@ -311,6 +448,7 @@ class DjangoProjectBuilder:
             AppCreationError,
             SettingsUpdateError,
             TemplateRenderError,
+            DockerScaffoldError,
         ) as e:
             click.echo(f"\nError: {e}")
             return False
@@ -348,7 +486,13 @@ def create() -> None:
             except InvalidAppNameError as e:
                 click.echo(f"Error: {e}")
 
-    builder = DjangoProjectBuilder(project_app_name, custom_app_name)
+    docker_integration = click.confirm(
+        "Would you like to add Docker integration?", default=False
+    )
+
+    builder = DjangoProjectBuilder(
+        project_app_name, custom_app_name, docker_integration
+    )
     builder.setup()
 
 
