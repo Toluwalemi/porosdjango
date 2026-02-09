@@ -134,6 +134,70 @@ class SettingsModifier:
     def __init__(self, settings_path: str) -> None:
         self.settings_path = settings_path
 
+    def _read_settings(self) -> str:
+        """Read the settings file content.
+
+        Returns:
+            The file content as a string.
+
+        Raises:
+            SettingsUpdateError: If the file cannot be read.
+        """
+        try:
+            with open(self.settings_path) as f:
+                return f.read()
+        except OSError as e:
+            raise SettingsUpdateError(
+                f"Cannot read settings file at '{self.settings_path}': {e}"
+            ) from e
+
+    def _write_settings(self, content: str) -> None:
+        """Write content to the settings file.
+
+        Raises:
+            SettingsUpdateError: If the file cannot be written.
+        """
+        try:
+            with open(self.settings_path, "w") as f:
+                f.write(content)
+        except OSError as e:
+            raise SettingsUpdateError(
+                f"Failed to write updated settings.py: {e}"
+            ) from e
+
+    def _find_list_boundaries(
+        self, lines: list[str], list_name: str
+    ) -> tuple[int, int]:
+        """Find the start and end indices of a Python list assignment.
+
+        Args:
+            lines: The settings file split into lines.
+            list_name: The variable name (e.g. "INSTALLED_APPS", "MIDDLEWARE").
+
+        Returns:
+            A (start_index, end_index) tuple.
+
+        Raises:
+            SettingsUpdateError: If the list cannot be found.
+        """
+        pattern = f"{list_name} = ["
+        list_start = None
+        list_end = None
+
+        for i, line in enumerate(lines):
+            if pattern in line:
+                list_start = i
+            elif list_start is not None and "]" in line:
+                list_end = i
+                break
+
+        if list_start is None or list_end is None:
+            raise SettingsUpdateError(
+                f"Could not locate {list_name} boundaries in settings.py. "
+                "Manual update required."
+            )
+        return list_start, list_end
+
     def add_apps_and_auth(self, custom_app_name: str | None) -> None:
         """Insert apps into INSTALLED_APPS and set AUTH_USER_MODEL.
 
@@ -143,13 +207,7 @@ class SettingsModifier:
         Raises:
             SettingsUpdateError: If settings.py cannot be parsed or written.
         """
-        try:
-            with open(self.settings_path) as f:
-                settings_content = f.read()
-        except OSError as e:
-            raise SettingsUpdateError(
-                f"Cannot read settings file at '{self.settings_path}': {e}"
-            ) from e
+        settings_content = self._read_settings()
 
         if "INSTALLED_APPS = [" not in settings_content:
             raise SettingsUpdateError(
@@ -157,21 +215,7 @@ class SettingsModifier:
             )
 
         lines = settings_content.split("\n")
-        app_list_start = None
-        app_list_end = None
-
-        for i, line in enumerate(lines):
-            if "INSTALLED_APPS = [" in line:
-                app_list_start = i
-            elif app_list_start is not None and "]" in line:
-                app_list_end = i
-                break
-
-        if app_list_start is None or app_list_end is None:
-            raise SettingsUpdateError(
-                "Could not locate INSTALLED_APPS boundaries in settings.py. "
-                "Manual update required."
-            )
+        _, app_list_end = self._find_list_boundaries(lines, "INSTALLED_APPS")
 
         if custom_app_name:
             lines.insert(app_list_end, f"    '{custom_app_name}',")
@@ -181,13 +225,133 @@ class SettingsModifier:
         lines.append("\n# Custom user model")
         lines.append("AUTH_USER_MODEL = 'auth_app.User'")
 
-        try:
-            with open(self.settings_path, "w") as f:
-                f.write("\n".join(lines))
-        except OSError as e:
-            raise SettingsUpdateError(
-                f"Failed to write updated settings.py: {e}"
-            ) from e
+        self._write_settings("\n".join(lines))
+
+    def add_docker_settings(self, project_name: str) -> None:
+        """Add Docker-related settings to settings.py.
+
+        Modifies settings.py to include PostgreSQL database config,
+        Prometheus monitoring, Celery task queue, and email settings
+        required by the Docker infrastructure.
+
+        Args:
+            project_name: The Django project name.
+
+        Raises:
+            SettingsUpdateError: If settings.py cannot be parsed or written.
+        """
+        settings_content = self._read_settings()
+        lines = settings_content.split("\n")
+
+        # 1. Add `import os` after `from pathlib import Path`
+        for i, line in enumerate(lines):
+            if "from pathlib import Path" in line:
+                lines.insert(i + 1, "import os")
+                break
+
+        # 2. Update ALLOWED_HOSTS
+        for i, line in enumerate(lines):
+            if "ALLOWED_HOSTS = []" in line:
+                lines[i] = (
+                    "ALLOWED_HOSTS = os.environ.get("
+                    '"DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"'
+                    ').split(",")'
+                )
+                break
+
+        # 3. Add STATIC_ROOT after STATIC_URL
+        for i, line in enumerate(lines):
+            if line.startswith("STATIC_URL"):
+                lines.insert(
+                    i + 1, 'STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")'
+                )
+                break
+
+        # 4. Add docker apps to INSTALLED_APPS
+        _, app_list_end = self._find_list_boundaries(lines, "INSTALLED_APPS")
+        lines.insert(app_list_end, "    'django_celery_beat',")
+        lines.insert(app_list_end, "    'django_prometheus',")
+
+        # 5. Add Prometheus middleware
+        mw_start, mw_end = self._find_list_boundaries(lines, "MIDDLEWARE")
+        lines.insert(
+            mw_end,
+            "    'django_prometheus.middleware.PrometheusAfterMiddleware',",
+        )
+        lines.insert(
+            mw_start + 1,
+            "    'django_prometheus.middleware.PrometheusBeforeMiddleware',",
+        )
+
+        # 6. Replace DATABASES block with PostgreSQL/SQLite fallback
+        db_start = None
+        for i, line in enumerate(lines):
+            if "DATABASES = {" in line:
+                db_start = i
+                break
+
+        if db_start is not None:
+            depth = 0
+            db_end = db_start
+            for i in range(db_start, len(lines)):
+                depth += lines[i].count("{") - lines[i].count("}")
+                if depth == 0:
+                    db_end = i
+                    break
+
+            db_replacement = [
+                'if os.environ.get("POSTGRES_DB"):',
+                "    DATABASES = {",
+                '        "default": {',
+                '            "ENGINE": "django.db.backends.postgresql",',
+                '            "NAME": os.environ["POSTGRES_DB"],',
+                '            "USER": os.environ["POSTGRES_USER"],',
+                '            "PASSWORD": os.environ["POSTGRES_PASSWORD"],',
+                '            "HOST": os.environ.get("POSTGRES_HOST", "db"),',
+                '            "PORT": os.environ.get("POSTGRES_PORT", "5432"),',
+                "        }",
+                "    }",
+                "else:",
+                "    DATABASES = {",
+                '        "default": {',
+                '            "ENGINE": "django.db.backends.sqlite3",',
+                '            "NAME": BASE_DIR / "db.sqlite3",',
+                "        }",
+                "    }",
+            ]
+            lines[db_start : db_end + 1] = db_replacement
+
+        # 7. Append Celery config
+        lines.append("")
+        lines.append("# Celery")
+        lines.append(
+            "CELERY_BROKER_URL = os.environ.get("
+            '"CELERY_BROKER_URL", "redis://localhost:6379/1")'
+        )
+        lines.append(
+            "CELERY_RESULT_BACKEND = os.environ.get("
+            '"CELERY_RESULT_BACKEND", "redis://localhost:6379/2")'
+        )
+
+        # 8. Append email config
+        lines.append("")
+        lines.append("# Email")
+        lines.append(
+            "EMAIL_BACKEND = os.environ.get("
+            '"EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")'
+        )
+        lines.append('EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")')
+        lines.append('EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))')
+        lines.append(
+            'EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "False").lower() '
+            'in ("true", "1")'
+        )
+        lines.append(
+            f"DEFAULT_FROM_EMAIL = os.environ.get("
+            f'"DEFAULT_FROM_EMAIL", "noreply@{project_name}.local")'
+        )
+
+        self._write_settings("\n".join(lines))
 
 
 class ProjectScaffold:
@@ -334,6 +498,8 @@ class ProjectScaffold:
                     "dashboards",
                     "dashboard.yml",
                 ): "docker/grafana_dashboard.yml.j2",
+                os.path.join(project_name, "celery.py"): "docker/celery_conf.py.j2",
+                os.path.join(project_name, "__init__.py"): "docker/init_celery.py.j2",
             }
 
             for dest, template_name in template_map.items():
@@ -429,6 +595,7 @@ class DjangoProjectBuilder:
             if self.docker_integration:
                 click.echo("Setting up Docker integration...")
                 self.scaffold.create_docker_setup(self.project_app_name)
+                self.settings.add_docker_settings(self.project_app_name)
 
             click.echo("Running migrations...")
             DjangoCommands.run_migrations()

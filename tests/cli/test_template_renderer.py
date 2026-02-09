@@ -23,7 +23,7 @@ def test_render_succeeds():
         mock_env_cls.return_value.get_template.assert_called_with("test.j2")
 
 
-def test_render_with_context_variables():
+def test_render_with_context_variables_succeeds():
     """GIVEN a TemplateRenderer with a valid template environment
     WHEN render is called with context keyword arguments
     THEN the context variables are passed to the template

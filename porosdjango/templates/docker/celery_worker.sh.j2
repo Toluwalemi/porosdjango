@@ -16,7 +16,7 @@ wait_for_service() {
 wait_for_service "${POSTGRES_HOST:-db}" "${POSTGRES_PORT:-5432}" "PostgreSQL"
 wait_for_service "${REDIS_HOST:-redis}" "${REDIS_PORT:-6379}" "Redis"
 
-CELERY_CMD="celery -A config worker --loglevel=${CELERY_LOG_LEVEL:-info} --concurrency=${CELERY_CONCURRENCY:-2}"
+CELERY_CMD="celery -A {{ project_name }} worker --loglevel=${CELERY_LOG_LEVEL:-info} --concurrency=${CELERY_CONCURRENCY:-2}"
 
 if [ "${DJANGO_DEBUG:-false}" = "true" ] || [ "${DJANGO_DEBUG:-false}" = "True" ] || [ "${DJANGO_DEBUG:-false}" = "1" ]; then
     echo "Starting Celery worker with auto-reload (watchfiles)..."
