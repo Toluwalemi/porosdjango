@@ -39,19 +39,8 @@ EXPOSE 8000
 
 CMD ["/scripts/dev.sh"]
 
+# ---- staging ----
+# include your staging configurations here
+
 # ---- production ----
-FROM base AS production
-
-COPY --from=builder /install /usr/local
-
-COPY . .
-
-RUN python manage.py collectstatic --noinput
-
-EXPOSE 8000
-
-CMD ["gunicorn", "{{ project_name }}.wsgi:application", \
-     "--bind", "0.0.0.0:8000", \
-     "--workers", "4", \
-     "--threads", "2", \
-     "--timeout", "120"]
+# include your production configurations here

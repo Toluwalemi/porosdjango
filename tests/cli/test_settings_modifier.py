@@ -21,7 +21,9 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    # third-party
     'rest_framework',
+    # local
     'auth_app',
 ]
 
@@ -55,7 +57,7 @@ AUTH_USER_MODEL = 'auth_app.User'
 def test_add_apps_and_auth_succeeds(tmp_path):
     """GIVEN a settings.py file with a default INSTALLED_APPS list
     WHEN add_apps_and_auth is called with a custom app name
-    THEN the settings file contains the custom app,
+    THEN the settings file contains section comments, the custom app,
     auth_app, rest_framework, and AUTH_USER_MODEL
     """
     settings_file = tmp_path / "settings.py"
@@ -76,6 +78,8 @@ INSTALLED_APPS = [
     assert "'auth_app'," in new_content
     assert "'rest_framework'," in new_content
     assert "AUTH_USER_MODEL = 'auth_app.User'" in new_content
+    assert "# third-party" in new_content
+    assert "# local" in new_content
 
 
 def test_add_apps_with_missing_file_fails():
@@ -156,17 +160,32 @@ def test_add_docker_settings_adds_static_root_succeeds(docker_settings_file):
 
 
 def test_add_docker_settings_adds_docker_apps_succeeds(docker_settings_file):
-    """GIVEN a standard Django settings.py
+    """GIVEN a standard Django settings.py with section comments
     WHEN add_docker_settings is called
-    THEN django_prometheus and django_celery_beat are in INSTALLED_APPS
+    THEN django_prometheus is first in INSTALLED_APPS
+    and django_celery_beat is in the third-party section
     """
     modifier = SettingsModifier(str(docker_settings_file))
     modifier.add_docker_settings("myproject")
 
     content = docker_settings_file.read_text()
+    lines = content.split("\n")
 
-    assert "'django_prometheus'," in content
-    assert "'django_celery_beat'," in content
+    app_start = next(i for i, line in enumerate(lines) if "INSTALLED_APPS = [" in line)
+    app_entries = [
+        lines[i].strip().strip("',")
+        for i in range(app_start + 1, len(lines))
+        if lines[i].strip()
+        and lines[i].strip() != "]"
+        and not lines[i].strip().startswith("#")
+    ]
+
+    assert app_entries[0] == "django_prometheus"
+    assert "django_celery_beat" in app_entries
+    # django_celery_beat should appear after rest_framework (third-party section)
+    rf_idx = app_entries.index("rest_framework")
+    cb_idx = app_entries.index("django_celery_beat")
+    assert cb_idx > rf_idx
 
 
 def test_add_docker_settings_adds_prometheus_middleware_succeeds(docker_settings_file):
@@ -210,11 +229,11 @@ def test_add_docker_settings_adds_celery_and_email_config_succeeds(
     docker_settings_file,
 ):
     """GIVEN a standard Django settings.py
-    WHEN add_docker_settings is called
-    THEN Celery and email settings are appended
+    WHEN add_docker_settings is called with a docker_project_name
+    THEN Celery and email settings are appended using the docker project name
     """
     modifier = SettingsModifier(str(docker_settings_file))
-    modifier.add_docker_settings("myproject")
+    modifier.add_docker_settings("myproject", docker_project_name="coolproject")
 
     content = docker_settings_file.read_text()
 
@@ -225,7 +244,7 @@ def test_add_docker_settings_adds_celery_and_email_config_succeeds(
     assert "EMAIL_PORT" in content
     assert "EMAIL_USE_TLS" in content
     assert "DEFAULT_FROM_EMAIL" in content
-    assert "noreply@myproject.local" in content
+    assert "noreply@coolproject.local" in content
 
 
 def test_add_docker_settings_with_missing_file_fails():

@@ -16,6 +16,6 @@ wait_for_service() {
 wait_for_service "${REDIS_HOST:-redis}" "${REDIS_PORT:-6379}" "Redis"
 
 echo "Starting Flower..."
-exec celery -A {{ project_name }} flower \
+exec celery -A {{ django_module }} flower \
     --port=5555 \
     --broker_api="${CELERY_BROKER_URL:-redis://redis:6379/1}"

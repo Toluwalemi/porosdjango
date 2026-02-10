@@ -21,7 +21,7 @@ def test_create_command_succeeds(mock_subprocess, mock_requests):
         result = runner.invoke(cli, ["create"], input="config\ny\nmyapp\nn\n")
 
         assert result.exit_code == 0
-        mock_builder.assert_called_with("config", "myapp", False)
+        mock_builder.assert_called_with("config", "myapp", False, None)
         instance.setup.assert_called_once()
 
 
@@ -29,6 +29,7 @@ def test_create_command_with_docker_succeeds(mock_subprocess, mock_requests):
     """GIVEN a mocked DjangoProjectBuilder that returns success
     WHEN the 'create' CLI command is invoked with Docker enabled
     THEN the builder is called with docker_integration=True
+    and the docker project name
     """
     runner = CliRunner()
 
@@ -36,11 +37,12 @@ def test_create_command_with_docker_succeeds(mock_subprocess, mock_requests):
         instance = mock_builder.return_value
         instance.setup.return_value = True
 
-        # Input: project_name, create custom app (y), app name, docker (y)
-        result = runner.invoke(cli, ["create"], input="config\ny\nmyapp\ny\n")
+        # Input: project_name, create custom app (y), app name, docker (y),
+        # docker project name (use default by pressing enter)
+        result = runner.invoke(cli, ["create"], input="config\ny\nmyapp\ny\n\n")
 
         assert result.exit_code == 0
-        mock_builder.assert_called_with("config", "myapp", True)
+        mock_builder.assert_called_with("config", "myapp", True, "config")
         instance.setup.assert_called_once()
 
 

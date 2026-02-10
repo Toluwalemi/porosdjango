@@ -44,7 +44,9 @@ def test_setup_with_docker_integration_calls_docker_setup_succeeds(
     THEN create_docker_setup is called with the project name
     and requirements include docker dependencies
     """
-    builder = DjangoProjectBuilder("testproj", "testapp", docker_integration=True)
+    builder = DjangoProjectBuilder(
+        "testproj", "testapp", docker_integration=True, docker_project_name="mysite"
+    )
 
     builder.scaffold = MagicMock()
     builder.settings = MagicMock()
@@ -59,8 +61,12 @@ def test_setup_with_docker_integration_calls_docker_setup_succeeds(
 
         assert success is True
         builder.scaffold.create_requirements.assert_called_once_with(docker=True)
-        builder.scaffold.create_docker_setup.assert_called_once_with("testproj")
-        builder.settings.add_docker_settings.assert_called_once_with("testproj")
+        builder.scaffold.create_docker_setup.assert_called_once_with(
+            "testproj", "mysite"
+        )
+        builder.settings.add_docker_settings.assert_called_once_with(
+            "testproj", "mysite"
+        )
 
 
 def test_setup_without_docker_skips_docker_setup_succeeds(

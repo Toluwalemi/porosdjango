@@ -220,14 +220,18 @@ class SettingsModifier:
         if custom_app_name:
             lines.insert(app_list_end, f"    '{custom_app_name}',")
         lines.insert(app_list_end, "    'auth_app',")
+        lines.insert(app_list_end, "    # local")
         lines.insert(app_list_end, "    'rest_framework',")
+        lines.insert(app_list_end, "    # third-party")
 
         lines.append("\n# Custom user model")
         lines.append("AUTH_USER_MODEL = 'auth_app.User'")
 
         self._write_settings("\n".join(lines))
 
-    def add_docker_settings(self, project_name: str) -> None:
+    def add_docker_settings(
+        self, project_name: str, docker_project_name: str | None = None
+    ) -> None:
         """Add Docker-related settings to settings.py.
 
         Modifies settings.py to include PostgreSQL database config,
@@ -235,11 +239,14 @@ class SettingsModifier:
         required by the Docker infrastructure.
 
         Args:
-            project_name: The Django project name.
+            project_name: The Django project module name.
+            docker_project_name: Optional display name for Docker services.
+                Falls back to project_name if not provided.
 
         Raises:
             SettingsUpdateError: If settings.py cannot be parsed or written.
         """
+        docker_name = docker_project_name or project_name
         settings_content = self._read_settings()
         lines = settings_content.split("\n")
 
@@ -268,9 +275,16 @@ class SettingsModifier:
                 break
 
         # 4. Add docker apps to INSTALLED_APPS
-        _, app_list_end = self._find_list_boundaries(lines, "INSTALLED_APPS")
-        lines.insert(app_list_end, "    'django_celery_beat',")
-        lines.insert(app_list_end, "    'django_prometheus',")
+        app_list_start, app_list_end = self._find_list_boundaries(
+            lines, "INSTALLED_APPS"
+        )
+        # Insert django_prometheus at top of INSTALLED_APPS
+        lines.insert(app_list_start + 1, "    'django_prometheus',")
+        # Insert django_celery_beat before # local comment
+        for i in range(app_list_start, len(lines)):
+            if lines[i].strip() == "# local":
+                lines.insert(i, "    'django_celery_beat',")
+                break
 
         # 5. Add Prometheus middleware
         mw_start, mw_end = self._find_list_boundaries(lines, "MIDDLEWARE")
@@ -348,7 +362,7 @@ class SettingsModifier:
         )
         lines.append(
             f"DEFAULT_FROM_EMAIL = os.environ.get("
-            f'"DEFAULT_FROM_EMAIL", "noreply@{project_name}.local")'
+            f'"DEFAULT_FROM_EMAIL", "noreply@{docker_name}.local")'
         )
 
         self._write_settings("\n".join(lines))
@@ -415,16 +429,22 @@ class ProjectScaffold:
         with open(os.path.join("auth_app", "managers.py"), "w") as f:
             f.write(managers_content)
 
-    def create_docker_setup(self, project_name: str) -> None:
+    def create_docker_setup(
+        self, project_name: str, docker_project_name: str | None = None
+    ) -> None:
         """Create Docker integration files for the project.
 
         Args:
-            project_name: The project name used for template variable substitution.
+            project_name: The Django project module name (used for file paths
+                and celery references).
+            docker_project_name: Optional display name for Docker services.
+                Falls back to project_name if not provided.
 
         Raises:
             DockerScaffoldError: If Docker scaffolding fails.
         """
         try:
+            docker_name = docker_project_name or project_name
             dirs = [
                 os.path.join("infrastructure", "docker", "scripts"),
                 os.path.join("infrastructure", "docker", "nginx"),
@@ -449,7 +469,7 @@ class ProjectScaffold:
             for d in dirs:
                 os.makedirs(d, exist_ok=True)
 
-            ctx = {"project_name": project_name}
+            ctx = {"project_name": docker_name, "django_module": project_name}
 
             template_map = {
                 os.path.join(
@@ -541,10 +561,12 @@ class DjangoProjectBuilder:
         project_app_name: str = "config",
         custom_app_name: str | None = None,
         docker_integration: bool = False,
+        docker_project_name: str | None = None,
     ) -> None:
         self.project_app_name = project_app_name
         self.custom_app_name = custom_app_name
         self.docker_integration = docker_integration
+        self.docker_project_name = docker_project_name
         self.renderer = TemplateRenderer()
         self.scaffold = ProjectScaffold(self.renderer)
         self.settings = SettingsModifier(os.path.join(project_app_name, "settings.py"))
@@ -594,8 +616,12 @@ class DjangoProjectBuilder:
 
             if self.docker_integration:
                 click.echo("Setting up Docker integration...")
-                self.scaffold.create_docker_setup(self.project_app_name)
-                self.settings.add_docker_settings(self.project_app_name)
+                self.scaffold.create_docker_setup(
+                    self.project_app_name, self.docker_project_name
+                )
+                self.settings.add_docker_settings(
+                    self.project_app_name, self.docker_project_name
+                )
 
             click.echo("Running migrations...")
             DjangoCommands.run_migrations()
@@ -657,8 +683,19 @@ def create() -> None:
         "Would you like to add Docker integration?", default=False
     )
 
+    docker_project_name = None
+    if docker_integration:
+        docker_project_name = click.prompt(
+            "What is the name of your project? This will be used for Docker\n"
+            "service names, database defaults, and network configuration",
+            default=project_app_name,
+        )
+
     builder = DjangoProjectBuilder(
-        project_app_name, custom_app_name, docker_integration
+        project_app_name,
+        custom_app_name,
+        docker_integration,
+        docker_project_name,
     )
     builder.setup()
 
