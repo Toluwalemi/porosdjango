@@ -140,10 +140,10 @@ def test_create_docker_setup_renders_templates_with_project_name_succeeds(
     assert "POSTGRES_DB=myproject" in env_content
     assert "noreply@myproject.local" in env_content
 
-    dockerfile_content = (
-        tmp_path / "infrastructure" / "docker" / "Dockerfile"
+    celery_worker_content = (
+        tmp_path / "infrastructure" / "docker" / "scripts" / "celery_worker.sh"
     ).read_text()
-    assert "myproject.wsgi:application" in dockerfile_content
+    assert "celery -A myproject" in celery_worker_content
 
     alertmanager_content = (
         tmp_path / "infrastructure" / "docker" / "alertmanager" / "alertmanager.yml"

@@ -130,6 +130,36 @@ def test_add_docker_settings_adds_import_os_succeeds(docker_settings_file):
     assert lines[pathlib_idx + 1] == "import os"
 
 
+def test_add_docker_settings_updates_secret_key_succeeds(docker_settings_file):
+    """GIVEN a standard Django settings.py with a hardcoded SECRET_KEY
+    WHEN add_docker_settings is called
+    THEN SECRET_KEY reads from the DJANGO_SECRET_KEY env var
+    with the original value as default
+    """
+    modifier = SettingsModifier(str(docker_settings_file))
+    modifier.add_docker_settings("myproject")
+
+    content = docker_settings_file.read_text()
+
+    assert "DJANGO_SECRET_KEY" in content
+    assert "django-insecure-test-key" in content
+    assert "os.environ.get(" in content
+
+
+def test_add_docker_settings_updates_debug_succeeds(docker_settings_file):
+    """GIVEN a standard Django settings.py with DEBUG = True
+    WHEN add_docker_settings is called
+    THEN DEBUG reads from the DJANGO_DEBUG env var
+    """
+    modifier = SettingsModifier(str(docker_settings_file))
+    modifier.add_docker_settings("myproject")
+
+    content = docker_settings_file.read_text()
+
+    assert "DJANGO_DEBUG" in content
+    assert 'in ("true", "1", "yes")' in content
+
+
 def test_add_docker_settings_updates_allowed_hosts_succeeds(docker_settings_file):
     """GIVEN a standard Django settings.py with ALLOWED_HOSTS = []
     WHEN add_docker_settings is called
@@ -225,12 +255,28 @@ def test_add_docker_settings_updates_databases_succeeds(docker_settings_file):
     assert 'os.environ["POSTGRES_DB"]' in content
 
 
+def test_add_docker_settings_adds_cache_config_succeeds(docker_settings_file):
+    """GIVEN a standard Django settings.py
+    WHEN add_docker_settings is called
+    THEN Redis cache config is appended
+    """
+    modifier = SettingsModifier(str(docker_settings_file))
+    modifier.add_docker_settings("myproject")
+
+    content = docker_settings_file.read_text()
+
+    assert "REDIS_URL" in content
+    assert "CACHES" in content
+    assert "django.core.cache.backends.redis.RedisCache" in content
+
+
 def test_add_docker_settings_adds_celery_and_email_config_succeeds(
     docker_settings_file,
 ):
     """GIVEN a standard Django settings.py
     WHEN add_docker_settings is called with a docker_project_name
-    THEN Celery and email settings are appended using the docker project name
+    THEN full Celery config and email settings are appended
+    using the docker project name
     """
     modifier = SettingsModifier(str(docker_settings_file))
     modifier.add_docker_settings("myproject", docker_project_name="coolproject")
@@ -239,6 +285,11 @@ def test_add_docker_settings_adds_celery_and_email_config_succeeds(
 
     assert "CELERY_BROKER_URL" in content
     assert "CELERY_RESULT_BACKEND" in content
+    assert 'CELERY_ACCEPT_CONTENT = ["json"]' in content
+    assert 'CELERY_TASK_SERIALIZER = "json"' in content
+    assert 'CELERY_RESULT_SERIALIZER = "json"' in content
+    assert "CELERY_TIMEZONE = TIME_ZONE" in content
+    assert "CELERY_BEAT_SCHEDULER" in content
     assert "EMAIL_BACKEND" in content
     assert "EMAIL_HOST" in content
     assert "EMAIL_PORT" in content
@@ -255,3 +306,39 @@ def test_add_docker_settings_with_missing_file_fails():
     modifier = SettingsModifier("nonexistent_settings.py")
     with pytest.raises(SettingsUpdateError, match="Cannot read settings file"):
         modifier.add_docker_settings("myproject")
+
+
+def test_add_prometheus_urls_succeeds(tmp_path):
+    """GIVEN a standard Django urls.py
+    WHEN add_prometheus_urls is called
+    THEN django_prometheus.urls is included and include is imported
+    """
+    urls_file = tmp_path / "urls.py"
+    urls_file.write_text(
+        "from django.contrib import admin\n"
+        "from django.urls import path\n"
+        "\n"
+        "urlpatterns = [\n"
+        "    path('admin/', admin.site.urls),\n"
+        "]\n"
+    )
+    settings_file = tmp_path / "settings.py"
+    settings_file.write_text("")
+
+    modifier = SettingsModifier(str(settings_file))
+    modifier.add_prometheus_urls()
+
+    content = urls_file.read_text()
+
+    assert "include" in content
+    assert "django_prometheus.urls" in content
+
+
+def test_add_prometheus_urls_with_missing_file_fails():
+    """GIVEN a SettingsModifier pointing to a directory without urls.py
+    WHEN add_prometheus_urls is called
+    THEN a SettingsUpdateError is raised
+    """
+    modifier = SettingsModifier("/nonexistent/settings.py")
+    with pytest.raises(SettingsUpdateError, match="Cannot read urls.py"):
+        modifier.add_prometheus_urls()

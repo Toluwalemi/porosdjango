@@ -256,7 +256,28 @@ class SettingsModifier:
                 lines.insert(i + 1, "import os")
                 break
 
-        # 2. Update ALLOWED_HOSTS
+        # 2. Update SECRET_KEY to read from env var
+        for i, line in enumerate(lines):
+            if line.startswith("SECRET_KEY"):
+                # Extract the original default value
+                original_value = line.split("=", 1)[1].strip()
+                lines[i] = (
+                    "SECRET_KEY = os.environ.get(\n"
+                    f'    "DJANGO_SECRET_KEY", {original_value}\n'
+                    ")"
+                )
+                break
+
+        # 3. Update DEBUG to read from env var
+        for i, line in enumerate(lines):
+            if line.startswith("DEBUG") and "=" in line:
+                lines[i] = (
+                    'DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() '
+                    'in ("true", "1", "yes")'
+                )
+                break
+
+        # 4. Update ALLOWED_HOSTS
         for i, line in enumerate(lines):
             if "ALLOWED_HOSTS = []" in line:
                 lines[i] = (
@@ -266,7 +287,7 @@ class SettingsModifier:
                 )
                 break
 
-        # 3. Add STATIC_ROOT after STATIC_URL
+        # 5. Add STATIC_ROOT after STATIC_URL
         for i, line in enumerate(lines):
             if line.startswith("STATIC_URL"):
                 lines.insert(
@@ -274,7 +295,7 @@ class SettingsModifier:
                 )
                 break
 
-        # 4. Add docker apps to INSTALLED_APPS
+        # 6. Add docker apps to INSTALLED_APPS
         app_list_start, app_list_end = self._find_list_boundaries(
             lines, "INSTALLED_APPS"
         )
@@ -286,7 +307,7 @@ class SettingsModifier:
                 lines.insert(i, "    'django_celery_beat',")
                 break
 
-        # 5. Add Prometheus middleware
+        # 7. Add Prometheus middleware
         mw_start, mw_end = self._find_list_boundaries(lines, "MIDDLEWARE")
         lines.insert(
             mw_end,
@@ -297,7 +318,7 @@ class SettingsModifier:
             "    'django_prometheus.middleware.PrometheusBeforeMiddleware',",
         )
 
-        # 6. Replace DATABASES block with PostgreSQL/SQLite fallback
+        # 8. Replace DATABASES block with PostgreSQL/SQLite fallback
         db_start = None
         for i, line in enumerate(lines):
             if "DATABASES = {" in line:
@@ -335,19 +356,47 @@ class SettingsModifier:
             ]
             lines[db_start : db_end + 1] = db_replacement
 
-        # 7. Append Celery config
+        # 9. Append Cache config
+        lines.append("")
+        lines.append("# Cache")
+        lines.append("# https://docs.djangoproject.com/en/6.0/topics/cache/")
+        lines.append(
+            'REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")'
+        )
+        lines.append("")
+        lines.append("CACHES = {")
+        lines.append('    "default": {')
+        lines.append(
+            '        "BACKEND": "django.core.cache.backends.redis.RedisCache",'
+        )
+        lines.append('        "LOCATION": REDIS_URL,')
+        lines.append("    }")
+        lines.append("}")
+
+        # 10. Append Celery config
         lines.append("")
         lines.append("# Celery")
+        lines.append(
+            "# https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html"
+        )
         lines.append(
             "CELERY_BROKER_URL = os.environ.get("
             '"CELERY_BROKER_URL", "redis://localhost:6379/1")'
         )
         lines.append(
-            "CELERY_RESULT_BACKEND = os.environ.get("
-            '"CELERY_RESULT_BACKEND", "redis://localhost:6379/2")'
+            "CELERY_RESULT_BACKEND = os.environ.get(\n"
+            '    "CELERY_RESULT_BACKEND", "redis://localhost:6379/2"\n'
+            ")"
+        )
+        lines.append('CELERY_ACCEPT_CONTENT = ["json"]')
+        lines.append('CELERY_TASK_SERIALIZER = "json"')
+        lines.append('CELERY_RESULT_SERIALIZER = "json"')
+        lines.append("CELERY_TIMEZONE = TIME_ZONE")
+        lines.append(
+            'CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"'
         )
 
-        # 8. Append email config
+        # 11. Append email config
         lines.append("")
         lines.append("# Email")
         lines.append(
@@ -366,6 +415,43 @@ class SettingsModifier:
         )
 
         self._write_settings("\n".join(lines))
+
+    def add_prometheus_urls(self) -> None:
+        """Add django_prometheus URL pattern to the project's urls.py.
+
+        Adds ``path("", include("django_prometheus.urls"))`` so that
+        Prometheus can scrape the ``/metrics`` endpoint.
+
+        Raises:
+            SettingsUpdateError: If urls.py cannot be read or written.
+        """
+        urls_path = os.path.join(os.path.dirname(self.settings_path), "urls.py")
+        try:
+            with open(urls_path) as f:
+                content = f.read()
+        except OSError as e:
+            raise SettingsUpdateError(
+                f"Cannot read urls.py at '{urls_path}': {e}"
+            ) from e
+
+        # Add include to imports if not already present
+        if "include" not in content:
+            content = content.replace(
+                "from django.urls import path",
+                "from django.urls import include, path",
+            )
+
+        # Add prometheus URL pattern at the start of urlpatterns
+        content = content.replace(
+            "urlpatterns = [",
+            'urlpatterns = [\n    path("", include("django_prometheus.urls")),',
+        )
+
+        try:
+            with open(urls_path, "w") as f:
+                f.write(content)
+        except OSError as e:
+            raise SettingsUpdateError(f"Failed to write updated urls.py: {e}") from e
 
 
 class ProjectScaffold:
@@ -622,6 +708,7 @@ class DjangoProjectBuilder:
                 self.settings.add_docker_settings(
                     self.project_app_name, self.docker_project_name
                 )
+                self.settings.add_prometheus_urls()
 
             click.echo("Running migrations...")
             DjangoCommands.run_migrations()

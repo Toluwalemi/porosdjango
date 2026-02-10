@@ -33,6 +33,7 @@ def test_setup_succeeds(mock_subprocess, mock_requests, mock_click):
         builder.settings.add_apps_and_auth.assert_called_with("testapp")
         builder.scaffold.create_docker_setup.assert_not_called()
         builder.settings.add_docker_settings.assert_not_called()
+        builder.settings.add_prometheus_urls.assert_not_called()
         mock_migrate.assert_called_once()
 
 
@@ -67,6 +68,7 @@ def test_setup_with_docker_integration_calls_docker_setup_succeeds(
         builder.settings.add_docker_settings.assert_called_once_with(
             "testproj", "mysite"
         )
+        builder.settings.add_prometheus_urls.assert_called_once()
 
 
 def test_setup_without_docker_skips_docker_setup_succeeds(
@@ -93,3 +95,4 @@ def test_setup_without_docker_skips_docker_setup_succeeds(
         builder.scaffold.create_requirements.assert_called_once_with(docker=False)
         builder.scaffold.create_docker_setup.assert_not_called()
         builder.settings.add_docker_settings.assert_not_called()
+        builder.settings.add_prometheus_urls.assert_not_called()
