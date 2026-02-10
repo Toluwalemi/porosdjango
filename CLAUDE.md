@@ -1,56 +1,41 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
+porosdjango is a CLI tool (`porosdjango create`) that scaffolds Django projects with opinionated defaults: custom User model, REST framework, and optional Docker integration (Celery, Prometheus, Nginx, Grafana, PostgreSQL).
 
-porosdjango is a CLI tool that bootstraps Django projects with opinionated defaults
+## Architecture (porosdjango/cli.py)
+- **TemplateRenderer** — Jinja2 via `PackageLoader("porosdjango", "templates")`. Call `.render(name, **ctx)`.
+- **DjangoCommands** — static methods wrapping subprocess: `startproject`, `startapp`, `run_migrations`, `install_dependencies`.
+- **SettingsModifier(settings_path)** — reads/transforms/writes Django `settings.py`. Key methods: `add_apps_and_auth(app_name)`, `add_docker_settings(project_name)`. Uses `_find_list_boundaries(lines, list_name)` to locate `INSTALLED_APPS`/`MIDDLEWARE`.
+- **ProjectScaffold(renderer)** — creates files: requirements, gitignore, helpers, auth_app, docker setup. `create_docker_setup(project_name)` writes infra files + `{project}/celery.py` and `{project}/__init__.py`.
+- **DjangoProjectBuilder(project_name, custom_app, docker)** — orchestrates everything in `setup()`.
 
-## Workflow Orchestration
+## Templates
+- All under `porosdjango/templates/`. Docker templates in `docker/` subdir (`.j2` files).
+- Static Grafana JSON dashboards in `docker/grafana/` (copied, not rendered).
+- Prometheus `{{ $labels }}` syntax escaped with `{% raw %}...{% endraw %}`.
+- All docker templates receive `project_name` as context variable.
 
-### 1. Plan Mode Default
-- Enter plan mode for ANY non-trivial task (3+ steps or architectural decisions)
-- If something goes sideways, STOP and re-plan immediately - don't keep pushing
-- Use plan mode for verification steps, not just building
-- Write detailed specs upfront to reduce ambiguity
+## Testing
+- `pytest tests/ -v` — run from project root.
+- Fixtures in `tests/conftest.py`: `mock_subprocess`, `mock_requests`, `mock_click`.
+- Builder tests mock `scaffold` and `settings` as `MagicMock()`, patch `DjangoCommands` static methods.
+- Docker scaffold tests must `(tmp_path / "project_name").mkdir()` before calling `create_docker_setup`.
+- Settings modifier tests use a `DJANGO_SETTINGS_FIXTURE` constant with realistic Django settings.
+- Integration tests use `click.testing.CliRunner` with `input=` for sequential prompts.
+- **Test naming**: every test name must end with `_succeeds` or `_fails` (e.g. `test_add_apps_and_auth_succeeds`, `test_add_apps_with_missing_file_fails`).
+- **Docstrings**: every test must have a GIVEN/WHEN/THEN docstring describing the scenario. Example:
+  ```python
+  def test_add_apps_and_auth_succeeds(tmp_path):
+      """GIVEN a settings.py file with a default INSTALLED_APPS list
+      WHEN add_apps_and_auth is called with a custom app name
+      THEN the settings file contains the custom app and AUTH_USER_MODEL
+      """
+  ```
 
-### 2. Subagent Strategy to keep main context window clean
-- Offload research, exploration, and parallel analysis to subagents
-- For complex problems, throw more compute at it via subagents
-- One task per subagent for focused execution
-
-### 3. Self-Improvement Loop
-- After ANY correction from the user: update 'tasks/lessons.md' with the pattern
-- Write rules for yourself that prevent the same mistake
-- Ruthlessly iterate on these lessons until mistake rate drops
-- Review lessons at session start for relevant project
-
-### 4. Verification Before Done
-- Never mark a task complete without proving it works
-- Diff behavior between main and your changes when relevant
-- Ask yourself: "Would a staff engineer approve this?"
-- Run tests, check logs, demonstrate correctness
-
-### 5. Demand Elegance (Balanced)
-- For non-trivial changes: pause and ask "is there a more elegant way?"
-- If a fix feels hacky: "Knowing everything I know now, implement the elegant solution"
-- Skip this for simple, obvious fixes - don't over-engineer
-- Challenge your own work before presenting it
-
-### 6. Autonomous Bug Fixing
-- When given a bug report: just fix it. Don't ask for hand-holding
-- Point at logs, errors, failing tests -> then resolve them
-- Zero context switching required from the user
-
-## Task Management
-1. **Plan First**: Write plan to 'tasks/todo.md' with checkable items
-2. **Verify Plan**: Check in before starting implementation
-3. **Track Progress**: Mark items complete as you go
-4. **Explain Changes**: High-level summary at each step
-5. **Document Results**: Add review to 'tasks/todo.md'
-6. **Capture Lessons**: Update 'tasks/lessons.md' after corrections
-
-## Core Principles
-- **Simplicity First**: Make every change as simple as possible. Impact minimal code.
-- **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
-- **Minimal Impact**: Changes should only touch what's necessary. Avoid introducing bugs.
+## Workflow
+1. Plan non-trivial tasks in `tasks/todo.md` with checkable items. Enter plan mode for 3+ step tasks.
+2. Track progress, verify with tests before marking done.
+3. Log corrections to `tasks/lessons.md`.
+4. Keep changes minimal and simple. No over-engineering.
+5. Fix bugs autonomously — find root cause, fix, prove it works.

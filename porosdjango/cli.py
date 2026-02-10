@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -9,6 +11,7 @@ import requests
 from jinja2 import Environment, PackageLoader
 
 from porosdjango.constants import (
+    DOCKER_REQUIREMENTS_CONTENT,
     FALLBACK_GITIGNORE,
     GITIGNORE_URL,
     REQUIREMENTS_CONTENT,
@@ -16,6 +19,7 @@ from porosdjango.constants import (
 from porosdjango.exceptions import (
     AppCreationError,
     DependencyInstallError,
+    DockerScaffoldError,
     InvalidAppNameError,
     ProjectCreationError,
     SettingsUpdateError,
@@ -33,11 +37,12 @@ class TemplateRenderer:
             autoescape=False,
         )
 
-    def render(self, template_name: str) -> str:
+    def render(self, template_name: str, **context: str) -> str:
         """Render a template by name and return the result as a string.
 
         Args:
             template_name: The filename of the template (e.g. 'models.py.j2').
+            **context: Template variables to pass to the renderer.
 
         Returns:
             The rendered template content.
@@ -47,7 +52,7 @@ class TemplateRenderer:
         """
         try:
             template = self.env.get_template(template_name)
-            return template.render()
+            return template.render(**context)
         except Exception as e:
             raise TemplateRenderError(
                 f"Failed to render template '{template_name}': {e}"
@@ -130,6 +135,70 @@ class SettingsModifier:
     def __init__(self, settings_path: str) -> None:
         self.settings_path = settings_path
 
+    def _read_settings(self) -> str:
+        """Read the settings file content.
+
+        Returns:
+            The file content as a string.
+
+        Raises:
+            SettingsUpdateError: If the file cannot be read.
+        """
+        try:
+            with open(self.settings_path) as f:
+                return f.read()
+        except OSError as e:
+            raise SettingsUpdateError(
+                f"Cannot read settings file at '{self.settings_path}': {e}"
+            ) from e
+
+    def _write_settings(self, content: str) -> None:
+        """Write content to the settings file.
+
+        Raises:
+            SettingsUpdateError: If the file cannot be written.
+        """
+        try:
+            with open(self.settings_path, "w") as f:
+                f.write(content)
+        except OSError as e:
+            raise SettingsUpdateError(
+                f"Failed to write updated settings.py: {e}"
+            ) from e
+
+    def _find_list_boundaries(
+        self, lines: list[str], list_name: str
+    ) -> tuple[int, int]:
+        """Find the start and end indices of a Python list assignment.
+
+        Args:
+            lines: The settings file split into lines.
+            list_name: The variable name (e.g. "INSTALLED_APPS", "MIDDLEWARE").
+
+        Returns:
+            A (start_index, end_index) tuple.
+
+        Raises:
+            SettingsUpdateError: If the list cannot be found.
+        """
+        pattern = f"{list_name} = ["
+        list_start = None
+        list_end = None
+
+        for i, line in enumerate(lines):
+            if pattern in line:
+                list_start = i
+            elif list_start is not None and "]" in line:
+                list_end = i
+                break
+
+        if list_start is None or list_end is None:
+            raise SettingsUpdateError(
+                f"Could not locate {list_name} boundaries in settings.py. "
+                "Manual update required."
+            )
+        return list_start, list_end
+
     def add_apps_and_auth(self, custom_app_name: str | None) -> None:
         """Insert apps into INSTALLED_APPS and set AUTH_USER_MODEL.
 
@@ -139,13 +208,7 @@ class SettingsModifier:
         Raises:
             SettingsUpdateError: If settings.py cannot be parsed or written.
         """
-        try:
-            with open(self.settings_path) as f:
-                settings_content = f.read()
-        except OSError as e:
-            raise SettingsUpdateError(
-                f"Cannot read settings file at '{self.settings_path}': {e}"
-            ) from e
+        settings_content = self._read_settings()
 
         if "INSTALLED_APPS = [" not in settings_content:
             raise SettingsUpdateError(
@@ -153,37 +216,253 @@ class SettingsModifier:
             )
 
         lines = settings_content.split("\n")
-        app_list_start = None
-        app_list_end = None
-
-        for i, line in enumerate(lines):
-            if "INSTALLED_APPS = [" in line:
-                app_list_start = i
-            elif app_list_start is not None and "]" in line:
-                app_list_end = i
-                break
-
-        if app_list_start is None or app_list_end is None:
-            raise SettingsUpdateError(
-                "Could not locate INSTALLED_APPS boundaries in settings.py. "
-                "Manual update required."
-            )
+        _, app_list_end = self._find_list_boundaries(lines, "INSTALLED_APPS")
 
         if custom_app_name:
             lines.insert(app_list_end, f"    '{custom_app_name}',")
         lines.insert(app_list_end, "    'auth_app',")
+        lines.insert(app_list_end, "    # local")
         lines.insert(app_list_end, "    'rest_framework',")
+        lines.insert(app_list_end, "    # third-party")
 
         lines.append("\n# Custom user model")
         lines.append("AUTH_USER_MODEL = 'auth_app.User'")
 
+        self._write_settings("\n".join(lines))
+
+    def add_docker_settings(
+        self, project_name: str, docker_project_name: str | None = None
+    ) -> None:
+        """Add Docker-related settings to settings.py.
+
+        Modifies settings.py to include PostgreSQL database config,
+        Prometheus monitoring, Celery task queue, and email settings
+        required by the Docker infrastructure.
+
+        Args:
+            project_name: The Django project module name.
+            docker_project_name: Optional display name for Docker services.
+                Falls back to project_name if not provided.
+
+        Raises:
+            SettingsUpdateError: If settings.py cannot be parsed or written.
+        """
+        docker_name = docker_project_name or project_name
+        settings_content = self._read_settings()
+        lines = settings_content.split("\n")
+
+        # 1. Add `import os` after `from pathlib import Path`
+        for i, line in enumerate(lines):
+            if "from pathlib import Path" in line:
+                lines.insert(i + 1, "import os")
+                break
+
+        # 2. Update SECRET_KEY to read from env var
+        for i, line in enumerate(lines):
+            if line.startswith("SECRET_KEY"):
+                # Extract the original default value
+                original_value = line.split("=", 1)[1].strip()
+                lines[i] = (
+                    "SECRET_KEY = os.environ.get(\n"
+                    f'    "DJANGO_SECRET_KEY", {original_value}\n'
+                    ")"
+                )
+                break
+
+        # 3. Update DEBUG to read from env var
+        for i, line in enumerate(lines):
+            if line.startswith("DEBUG") and "=" in line:
+                lines[i] = (
+                    'DEBUG = os.environ.get("DJANGO_DEBUG", "True").lower() '
+                    'in ("true", "1", "yes")'
+                )
+                break
+
+        # 4. Update ALLOWED_HOSTS
+        for i, line in enumerate(lines):
+            if "ALLOWED_HOSTS = []" in line:
+                lines[i] = (
+                    "ALLOWED_HOSTS = os.environ.get("
+                    '"DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1"'
+                    ').split(",")'
+                )
+                break
+
+        # 5. Add STATIC_ROOT after STATIC_URL
+        for i, line in enumerate(lines):
+            if line.startswith("STATIC_URL"):
+                lines.insert(
+                    i + 1, 'STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")'
+                )
+                break
+
+        # 6. Add docker apps to INSTALLED_APPS
+        app_list_start, app_list_end = self._find_list_boundaries(
+            lines, "INSTALLED_APPS"
+        )
+        # Insert django_prometheus at top of INSTALLED_APPS
+        lines.insert(app_list_start + 1, "    'django_prometheus',")
+        # Insert django_celery_beat before # local comment
+        for i in range(app_list_start, len(lines)):
+            if lines[i].strip() == "# local":
+                lines.insert(i, "    'django_celery_beat',")
+                break
+
+        # 7. Add Prometheus middleware
+        mw_start, mw_end = self._find_list_boundaries(lines, "MIDDLEWARE")
+        lines.insert(
+            mw_end,
+            "    'django_prometheus.middleware.PrometheusAfterMiddleware',",
+        )
+        lines.insert(
+            mw_start + 1,
+            "    'django_prometheus.middleware.PrometheusBeforeMiddleware',",
+        )
+
+        # 8. Replace DATABASES block with PostgreSQL/SQLite fallback
+        db_start = None
+        for i, line in enumerate(lines):
+            if "DATABASES = {" in line:
+                db_start = i
+                break
+
+        if db_start is not None:
+            depth = 0
+            db_end = db_start
+            for i in range(db_start, len(lines)):
+                depth += lines[i].count("{") - lines[i].count("}")
+                if depth == 0:
+                    db_end = i
+                    break
+
+            db_replacement = [
+                'if os.environ.get("POSTGRES_DB"):',
+                "    DATABASES = {",
+                '        "default": {',
+                '            "ENGINE": "django.db.backends.postgresql",',
+                '            "NAME": os.environ["POSTGRES_DB"],',
+                '            "USER": os.environ["POSTGRES_USER"],',
+                '            "PASSWORD": os.environ["POSTGRES_PASSWORD"],',
+                '            "HOST": os.environ.get("POSTGRES_HOST", "db"),',
+                '            "PORT": os.environ.get("POSTGRES_PORT", "5432"),',
+                "        }",
+                "    }",
+                "else:",
+                "    DATABASES = {",
+                '        "default": {',
+                '            "ENGINE": "django.db.backends.sqlite3",',
+                '            "NAME": BASE_DIR / "db.sqlite3",',
+                "        }",
+                "    }",
+            ]
+            lines[db_start : db_end + 1] = db_replacement
+
+        # 9. Append Cache config
+        lines.append("")
+        lines.append("# Cache")
+        lines.append("# https://docs.djangoproject.com/en/6.0/topics/cache/")
+        lines.append(
+            'REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")'
+        )
+        lines.append("")
+        lines.append("CACHES = {")
+        lines.append('    "default": {')
+        lines.append(
+            '        "BACKEND": "django.core.cache.backends.redis.RedisCache",'
+        )
+        lines.append('        "LOCATION": REDIS_URL,')
+        lines.append("    }")
+        lines.append("}")
+
+        # 10. Append Celery config
+        lines.append("")
+        lines.append("# Celery")
+        lines.append(
+            "# https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html"
+        )
+        lines.append(
+            "CELERY_BROKER_URL = os.environ.get("
+            '"CELERY_BROKER_URL", "redis://localhost:6379/1")'
+        )
+        lines.append(
+            "CELERY_RESULT_BACKEND = os.environ.get(\n"
+            '    "CELERY_RESULT_BACKEND", "redis://localhost:6379/2"\n'
+            ")"
+        )
+        lines.append('CELERY_ACCEPT_CONTENT = ["json"]')
+        lines.append('CELERY_TASK_SERIALIZER = "json"')
+        lines.append('CELERY_RESULT_SERIALIZER = "json"')
+        lines.append("CELERY_TIMEZONE = TIME_ZONE")
+        lines.append(
+            'CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"'
+        )
+
+        # 11. Append email config
+        lines.append("")
+        lines.append("# Email")
+        lines.append(
+            "EMAIL_BACKEND = os.environ.get("
+            '"EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend")'
+        )
+        lines.append('EMAIL_HOST = os.environ.get("EMAIL_HOST", "localhost")')
+        lines.append('EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "25"))')
+        lines.append(
+            'EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "False").lower() '
+            'in ("true", "1")'
+        )
+        lines.append(
+            f"DEFAULT_FROM_EMAIL = os.environ.get("
+            f'"DEFAULT_FROM_EMAIL", "noreply@{docker_name}.local")'
+        )
+
+        self._write_settings("\n".join(lines))
+
+    def add_prometheus_urls(self) -> None:
+        """Add django_prometheus URL pattern to the project's urls.py.
+
+        Adds ``path("", include("django_prometheus.urls"))`` so that
+        Prometheus can scrape the ``/metrics`` endpoint.
+
+        Raises:
+            SettingsUpdateError: If urls.py cannot be read or written.
+        """
+        urls_path = os.path.join(os.path.dirname(self.settings_path), "urls.py")
         try:
-            with open(self.settings_path, "w") as f:
-                f.write("\n".join(lines))
+            with open(urls_path) as f:
+                content = f.read()
         except OSError as e:
             raise SettingsUpdateError(
-                f"Failed to write updated settings.py: {e}"
+                f"Cannot read urls.py at '{urls_path}': {e}"
             ) from e
+
+        # Add include to imports if not already present.
+        has_include_import = bool(
+            re.search(
+                r"^\s*from\s+django\.urls\s+import\s+.*\binclude\b",
+                content,
+                re.MULTILINE,
+            )
+        )
+        if not has_include_import:
+            content, count = re.subn(
+                r"from\s+django\.urls\s+import\s+path",
+                "from django.urls import include, path",
+                content,
+            )
+            if count == 0:
+                content = "from django.urls import include, path\n" + content
+
+        # Add prometheus URL pattern at the start of urlpatterns
+        content = content.replace(
+            "urlpatterns = [",
+            'urlpatterns = [\n    path("", include("django_prometheus.urls")),',
+        )
+
+        try:
+            with open(urls_path, "w") as f:
+                f.write(content)
+        except OSError as e:
+            raise SettingsUpdateError(f"Failed to write updated urls.py: {e}") from e
 
 
 class ProjectScaffold:
@@ -192,10 +471,17 @@ class ProjectScaffold:
     def __init__(self, renderer: TemplateRenderer) -> None:
         self.renderer = renderer
 
-    def create_requirements(self) -> None:
-        """Write requirements.txt with pinned dependencies."""
+    def create_requirements(self, docker: bool = False) -> None:
+        """Write requirements.txt with pinned dependencies.
+
+        Args:
+            docker: If True, append Docker-specific dependencies.
+        """
+        content = REQUIREMENTS_CONTENT
+        if docker:
+            content += DOCKER_REQUIREMENTS_CONTENT
         with open("requirements.txt", "w") as f:
-            f.write(REQUIREMENTS_CONTENT)
+            f.write(content)
 
     def create_gitignore(self) -> None:
         """Fetch .gitignore from the network, falling back to a bundled default."""
@@ -240,6 +526,129 @@ class ProjectScaffold:
         with open(os.path.join("auth_app", "managers.py"), "w") as f:
             f.write(managers_content)
 
+    def create_docker_setup(
+        self, project_name: str, docker_project_name: str | None = None
+    ) -> None:
+        """Create Docker integration files for the project.
+
+        Args:
+            project_name: The Django project module name (used for file paths
+                and celery references).
+            docker_project_name: Optional display name for Docker services.
+                Falls back to project_name if not provided.
+
+        Raises:
+            DockerScaffoldError: If Docker scaffolding fails.
+        """
+        try:
+            docker_name = docker_project_name or project_name
+            dirs = [
+                os.path.join("infrastructure", "docker", "scripts"),
+                os.path.join("infrastructure", "docker", "nginx"),
+                os.path.join("infrastructure", "docker", "prometheus"),
+                os.path.join("infrastructure", "docker", "alertmanager"),
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "datasources",
+                ),
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "dashboards",
+                    "json",
+                ),
+            ]
+            for d in dirs:
+                os.makedirs(d, exist_ok=True)
+
+            ctx = {"project_name": docker_name, "django_module": project_name}
+
+            template_map = {
+                os.path.join(
+                    "infrastructure", "docker", "Dockerfile"
+                ): "docker/Dockerfile.j2",
+                "docker-compose.yml": "docker/docker_compose.yml.j2",
+                ".dockerignore": "docker/dockerignore.j2",
+                ".env.example": "docker/env_example.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "dev.sh"
+                ): "docker/dev.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "celery_worker.sh"
+                ): "docker/celery_worker.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "celery_beat.sh"
+                ): "docker/celery_beat.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "scripts", "flower.sh"
+                ): "docker/flower.sh.j2",
+                os.path.join(
+                    "infrastructure", "docker", "nginx", "nginx.conf"
+                ): "docker/nginx.conf.j2",
+                os.path.join(
+                    "infrastructure", "docker", "prometheus", "prometheus.yml"
+                ): "docker/prometheus.yml.j2",
+                os.path.join(
+                    "infrastructure", "docker", "prometheus", "alert_rules.yml"
+                ): "docker/alert_rules.yml.j2",
+                os.path.join(
+                    "infrastructure", "docker", "alertmanager", "alertmanager.yml"
+                ): "docker/alertmanager.yml.j2",
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "datasources",
+                    "datasource.yml",
+                ): "docker/grafana_datasource.yml.j2",
+                os.path.join(
+                    "infrastructure",
+                    "docker",
+                    "grafana",
+                    "provisioning",
+                    "dashboards",
+                    "dashboard.yml",
+                ): "docker/grafana_dashboard.yml.j2",
+                os.path.join(project_name, "celery.py"): "docker/celery_conf.py.j2",
+                os.path.join(project_name, "__init__.py"): "docker/init_celery.py.j2",
+            }
+
+            for dest, template_name in template_map.items():
+                content = self.renderer.render(template_name, **ctx)
+                with open(dest, "w") as f:
+                    f.write(content)
+
+            # Copy static Grafana dashboard JSON files
+            grafana_json_dir = os.path.join(
+                "infrastructure",
+                "docker",
+                "grafana",
+                "provisioning",
+                "dashboards",
+                "json",
+            )
+            static_dir = os.path.join(
+                os.path.dirname(__file__),
+                "templates",
+                "docker",
+                "grafana",
+            )
+            for json_file in ("django-app.json", "infrastructure.json", "celery.json"):
+                src = os.path.join(static_dir, json_file)
+                dst = os.path.join(grafana_json_dir, json_file)
+                shutil.copy2(src, dst)
+
+        except TemplateRenderError:
+            raise
+        except Exception as e:
+            raise DockerScaffoldError(f"Failed to create Docker setup: {e}") from e
+
 
 class DjangoProjectBuilder:
     """Orchestrates the full project setup process."""
@@ -248,9 +657,13 @@ class DjangoProjectBuilder:
         self,
         project_app_name: str = "config",
         custom_app_name: str | None = None,
+        docker_integration: bool = False,
+        docker_project_name: str | None = None,
     ) -> None:
         self.project_app_name = project_app_name
         self.custom_app_name = custom_app_name
+        self.docker_integration = docker_integration
+        self.docker_project_name = docker_project_name
         self.renderer = TemplateRenderer()
         self.scaffold = ProjectScaffold(self.renderer)
         self.settings = SettingsModifier(os.path.join(project_app_name, "settings.py"))
@@ -263,7 +676,7 @@ class DjangoProjectBuilder:
         """
         try:
             click.echo("Creating requirements.txt...")
-            self.scaffold.create_requirements()
+            self.scaffold.create_requirements(docker=self.docker_integration)
 
             click.echo("Installing dependencies...")
             try:
@@ -298,12 +711,27 @@ class DjangoProjectBuilder:
             click.echo("Creating .gitignore...")
             self.scaffold.create_gitignore()
 
+            if self.docker_integration:
+                click.echo("Setting up Docker integration...")
+                self.scaffold.create_docker_setup(
+                    self.project_app_name, self.docker_project_name
+                )
+                self.settings.add_docker_settings(
+                    self.project_app_name, self.docker_project_name
+                )
+                self.settings.add_prometheus_urls()
+
             click.echo("Running migrations...")
             DjangoCommands.run_migrations()
 
             click.echo("\nSetup complete!")
-            click.echo("\nRun your project with:")
-            click.echo("  python manage.py runserver")
+            if self.docker_integration:
+                click.echo("\nRun your project with Docker:")
+                click.echo("  cp .env.example .env")
+                click.echo("  docker compose up --build")
+            else:
+                click.echo("\nRun your project with:")
+                click.echo("  python manage.py runserver")
             return True
 
         except (
@@ -311,6 +739,7 @@ class DjangoProjectBuilder:
             AppCreationError,
             SettingsUpdateError,
             TemplateRenderError,
+            DockerScaffoldError,
         ) as e:
             click.echo(f"\nError: {e}")
             return False
@@ -348,7 +777,24 @@ def create() -> None:
             except InvalidAppNameError as e:
                 click.echo(f"Error: {e}")
 
-    builder = DjangoProjectBuilder(project_app_name, custom_app_name)
+    docker_integration = click.confirm(
+        "Would you like to add Docker integration?", default=False
+    )
+
+    docker_project_name = None
+    if docker_integration:
+        docker_project_name = click.prompt(
+            "What is the name of your project? This will be used for Docker\n"
+            "service names, database defaults, and network configuration",
+            default=project_app_name,
+        )
+
+    builder = DjangoProjectBuilder(
+        project_app_name,
+        custom_app_name,
+        docker_integration,
+        docker_project_name,
+    )
     builder.setup()
 
 

@@ -7,6 +7,20 @@ DRF_VERSION = "3.16.1"
 
 REQUIREMENTS_CONTENT = f"Django=={DJANGO_VERSION}\ndjangorestframework=={DRF_VERSION}\n"
 
+DOCKER_REQUIREMENTS_CONTENT = """\
+celery==5.5.2
+django-celery-beat @ git+https://github.com/celery/django-celery-beat.git@main
+django-debug-toolbar==5.2.0
+django-extensions==4.1
+django-prometheus==2.3.1
+flower==2.0.1
+gunicorn==23.0.0
+ipython==9.2.0
+psycopg[binary]==3.3.2
+redis==6.2.0
+watchfiles==1.1.1
+"""
+
 GITIGNORE_URL = "https://www.toptal.com/developers/gitignore/api/django"
 
 FALLBACK_GITIGNORE = """\

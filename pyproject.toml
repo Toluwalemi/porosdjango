@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "porosdjango"
-version = "0.1.2"
+version = "1.0.0"
 requires-python = ">=3.11"
 description = "An opinionated Django project setup tool"
 readme = "README.md"
@@ -49,7 +49,7 @@ packages = ["porosdjango"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-porosdjango = ["templates/*.j2"]
+porosdjango = ["templates/**/*.j2", "templates/**/*.json"]
 
 [tool.ruff]
 target-version = "py311"
