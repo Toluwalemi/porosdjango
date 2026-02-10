@@ -334,6 +334,58 @@ def test_add_prometheus_urls_succeeds(tmp_path):
     assert "django_prometheus.urls" in content
 
 
+def test_add_prometheus_urls_with_nonstandard_import_succeeds(tmp_path):
+    """GIVEN a urls.py with a non-standard import line (extra spacing)
+    WHEN add_prometheus_urls is called
+    THEN include is still added and django_prometheus.urls is included
+    """
+    urls_file = tmp_path / "urls.py"
+    urls_file.write_text(
+        "from django.contrib import admin\n"
+        "from  django.urls  import  path\n"
+        "\n"
+        "urlpatterns = [\n"
+        "    path('admin/', admin.site.urls),\n"
+        "]\n"
+    )
+    settings_file = tmp_path / "settings.py"
+    settings_file.write_text("")
+
+    modifier = SettingsModifier(str(settings_file))
+    modifier.add_prometheus_urls()
+
+    content = urls_file.read_text()
+
+    assert "include" in content
+    assert "django_prometheus.urls" in content
+
+
+def test_add_prometheus_urls_with_missing_import_succeeds(tmp_path):
+    """GIVEN a urls.py that does not have 'from django.urls import path'
+    WHEN add_prometheus_urls is called
+    THEN include is prepended and django_prometheus.urls is included
+    """
+    urls_file = tmp_path / "urls.py"
+    urls_file.write_text(
+        "from django.contrib import admin\n"
+        "import django.urls\n"
+        "\n"
+        "urlpatterns = [\n"
+        "    django.urls.path('admin/', admin.site.urls),\n"
+        "]\n"
+    )
+    settings_file = tmp_path / "settings.py"
+    settings_file.write_text("")
+
+    modifier = SettingsModifier(str(settings_file))
+    modifier.add_prometheus_urls()
+
+    content = urls_file.read_text()
+
+    assert "from django.urls import include, path" in content
+    assert "django_prometheus.urls" in content
+
+
 def test_add_prometheus_urls_with_missing_file_fails():
     """GIVEN a SettingsModifier pointing to a directory without urls.py
     WHEN add_prometheus_urls is called

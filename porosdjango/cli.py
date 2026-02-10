@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -436,10 +437,13 @@ class SettingsModifier:
 
         # Add include to imports if not already present
         if "include" not in content:
-            content = content.replace(
-                "from django.urls import path",
+            content, count = re.subn(
+                r"from\s+django\.urls\s+import\s+path",
                 "from django.urls import include, path",
+                content,
             )
+            if count == 0:
+                content = "from django.urls import include, path\n" + content
 
         # Add prometheus URL pattern at the start of urlpatterns
         content = content.replace(
