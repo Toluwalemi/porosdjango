@@ -334,6 +334,37 @@ def test_add_prometheus_urls_succeeds(tmp_path):
     assert "django_prometheus.urls" in content
 
 
+def test_add_prometheus_urls_with_include_in_docstring_succeeds(tmp_path):
+    """GIVEN a Django 6.0 urls.py whose docstring mentions 'include'
+    WHEN add_prometheus_urls is called
+    THEN include is added to the actual import and django_prometheus.urls is included
+    """
+    urls_file = tmp_path / "urls.py"
+    urls_file.write_text(
+        '"""\nURL configuration for config project.\n'
+        "Including another URLconf\n"
+        "    1. Import the include() function: from django.urls import include, path\n"
+        "    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))\n"
+        '"""\n'
+        "from django.contrib import admin\n"
+        "from django.urls import path\n"
+        "\n"
+        "urlpatterns = [\n"
+        "    path('admin/', admin.site.urls),\n"
+        "]\n"
+    )
+    settings_file = tmp_path / "settings.py"
+    settings_file.write_text("")
+
+    modifier = SettingsModifier(str(settings_file))
+    modifier.add_prometheus_urls()
+
+    content = urls_file.read_text()
+
+    assert "from django.urls import include, path" in content
+    assert "django_prometheus.urls" in content
+
+
 def test_add_prometheus_urls_with_nonstandard_import_succeeds(tmp_path):
     """GIVEN a urls.py with a non-standard import line (extra spacing)
     WHEN add_prometheus_urls is called

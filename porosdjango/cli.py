@@ -435,8 +435,15 @@ class SettingsModifier:
                 f"Cannot read urls.py at '{urls_path}': {e}"
             ) from e
 
-        # Add include to imports if not already present
-        if "include" not in content:
+        # Add include to imports if not already present.
+        has_include_import = bool(
+            re.search(
+                r"^\s*from\s+django\.urls\s+import\s+.*\binclude\b",
+                content,
+                re.MULTILINE,
+            )
+        )
+        if not has_include_import:
             content, count = re.subn(
                 r"from\s+django\.urls\s+import\s+path",
                 "from django.urls import include, path",
